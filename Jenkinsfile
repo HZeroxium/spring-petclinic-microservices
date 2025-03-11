@@ -1,19 +1,38 @@
 pipeline {
     agent {
-            node {
-                label 'docker-agent-petclinic'
-                }
-          }
+        node {
+            label 'docker-agent-petclinic'
+        }
+    }
 
     environment {
         GITHUB_TOKEN = credentials('github-token')
     }
 
     stages {
+        stage('Debug Git Commit') {
+            steps {
+                script {
+                    echo "🔍 Checking GIT_COMMIT value: ${env.GIT_COMMIT}"
+                    if (!env.GIT_COMMIT?.trim()) {
+                        error("❌ env.GIT_COMMIT is empty! Ensure checkout scm is executed properly.")
+                    }
+                }
+            }
+        }
+
         stage('Checkout Code') {
             steps {
                 script {
-                    checkout scm
+                    checkout([$class: 'GitSCM',
+                        branches: [[name: '*/test/notify']],
+                        doGenerateSubmoduleConfigurations: false,
+                        extensions: [],
+                        userRemoteConfigs: [[
+                            url: 'https://github.com/HZeroxium/spring-petclinic-microservices',
+                            credentialsId: 'github-token'
+                        ]]
+                    ])
                 }
             }
         }
@@ -25,7 +44,8 @@ pipeline {
                                  status: 'PENDING',
                                  credentialsId: 'github-token',
                                  repo: 'HZeroxium/spring-petclinic-microservices',
-                                 sha: env.GIT_COMMIT
+                                 sha: env.GIT_COMMIT,
+                                 account: 'HZeroxium'
                 }
             }
         }
@@ -34,7 +54,7 @@ pipeline {
             steps {
                 script {
                     echo "Running a dummy task for debugging..."
-                    sleep 5  // Giả lập thời gian chạy task
+                    sleep 1
                 }
             }
         }
@@ -46,7 +66,8 @@ pipeline {
                                  status: 'SUCCESS',
                                  credentialsId: 'github-token',
                                  repo: 'HZeroxium/spring-petclinic-microservices',
-                                 sha: env.GIT_COMMIT
+                                 sha: env.GIT_COMMIT,
+                                 account: 'HZeroxium'
                 }
             }
         }
@@ -59,7 +80,8 @@ pipeline {
                              status: 'FAILURE',
                              credentialsId: 'github-token',
                              repo: 'HZeroxium/spring-petclinic-microservices',
-                             sha: env.GIT_COMMIT
+                             sha: env.GIT_COMMIT,
+                             account: 'HZeroxium'
             }
         }
     }
