@@ -4,6 +4,7 @@ pipeline {
             image 'hzeroxium/petclinic-jenkins-agent'
         }
     }
+
     environment {
         GITHUB_TOKEN = credentials('github-token')
     }
