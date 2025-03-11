@@ -26,16 +26,20 @@ pipeline {
         stage('Checkout Code') {
             steps {
                 script {
-                    checkout([$class: 'GitSCM',
-                        branches: [[name: '*/test/notify']],
-                        doGenerateSubmoduleConfigurations: false,
-                        extensions: [[$class: 'CloneOption', depth: 1, noTags: true, shallow: false]],
-                        userRemoteConfigs: [[
-                            url: 'https://github.com/HZeroxium/spring-petclinic-microservices',
-                            credentialsId: 'github-token'
-                        ]]
-                    ])
-                    echo "✅ Code checked out successfully"
+                    try {
+                        checkout([$class: 'GitSCM',
+                            branches: [[name: '*/test/notify']],
+                            doGenerateSubmoduleConfigurations: false,
+                            extensions: [[$class: 'CloneOption', depth: 1, noTags: true, shallow: false]],
+                            userRemoteConfigs: [[
+                                url: 'https://github.com/HZeroxium/spring-petclinic-microservices',
+                                credentialsId: 'github-token'
+                            ]]
+                        ])
+                        echo "✅ Code checked out successfully"
+                    } catch (Exception e) {
+                        error("❌ Checkout failed: ${e.getMessage()}")
+                    }
                 }
             }
         }
@@ -43,12 +47,16 @@ pipeline {
         stage('Send GitHub Notify - PENDING') {
             steps {
                 script {
-                    githubNotify context: 'Debug CI',
-                                 status: 'PENDING',
-                                 credentialsId: 'github-token',
-                                 repo: 'HZeroxium/spring-petclinic-microservices',
-                                 sha: env.GIT_COMMIT
-                    echo "✅ GitHub Notify - PENDING sent successfully"
+                    try {
+                        githubNotify context: 'Debug CI',
+                                     status: 'PENDING',
+                                     credentialsId: 'github-token',
+                                     repo: 'HZeroxium/spring-petclinic-microservices',
+                                     sha: env.GIT_COMMIT
+                        echo "✅ GitHub Notify - PENDING sent successfully"
+                    } catch (Exception e) {
+                        error("❌ GitHub Notify - PENDING failed: ${e.getMessage()}")
+                    }
                 }
             }
         }
@@ -66,12 +74,16 @@ pipeline {
         stage('Send GitHub Notify - SUCCESS') {
             steps {
                 script {
-                    githubNotify context: 'Debug CI',
-                                 status: 'SUCCESS',
-                                 credentialsId: 'github-token',
-                                 repo: 'HZeroxium/spring-petclinic-microservices',
-                                 sha: env.GIT_COMMIT
-                    echo "✅ GitHub Notify - SUCCESS sent successfully"
+                    try {
+                        githubNotify context: 'Debug CI',
+                                     status: 'SUCCESS',
+                                     credentialsId: 'github-token',
+                                     repo: 'HZeroxium/spring-petclinic-microservices',
+                                     sha: env.GIT_COMMIT
+                        echo "✅ GitHub Notify - SUCCESS sent successfully"
+                    } catch (Exception e) {
+                        error("❌ GitHub Notify - SUCCESS failed: ${e.getMessage()}")
+                    }
                 }
             }
         }
@@ -80,12 +92,16 @@ pipeline {
     post {
         failure {
             script {
-                githubNotify context: 'Debug CI',
-                             status: 'FAILURE',
-                             credentialsId: 'github-token',
-                             repo: 'HZeroxium/spring-petclinic-microservices',
-                             sha: env.GIT_COMMIT
-                echo "❌ GitHub Notify - FAILURE sent"
+                try {
+                    githubNotify context: 'Debug CI',
+                                 status: 'FAILURE',
+                                 credentialsId: 'github-token',
+                                 repo: 'HZeroxium/spring-petclinic-microservices',
+                                 sha: env.GIT_COMMIT
+                    echo "❌ GitHub Notify - FAILURE sent"
+                } catch (Exception e) {
+                    echo "⚠️ GitHub Notify - FAILURE failed: ${e.getMessage()}"
+                }
             }
         }
         always {
