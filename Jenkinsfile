@@ -1,5 +1,9 @@
 pipeline {
-    agent any
+    agent {
+            docker {
+                image 'hzeroxium/petclinic-jenkins-agent'
+            }
+        }
 
     environment {
         GITHUB_TOKEN = credentials('github-token')
