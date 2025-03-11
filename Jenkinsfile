@@ -1,7 +1,7 @@
 pipeline {
     agent {
-        docker {
-            image 'hzeroxium/petclinic-jenkins-agent'
+        node {
+            label 'docker-agent-petclinic'
         }
     }
 
