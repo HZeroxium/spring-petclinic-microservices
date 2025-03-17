@@ -130,7 +130,7 @@ pipeline {
                         echo "🔬 Running tests for ${service}..."
                         withEnv(["MAVEN_USER_HOME=${env.WORKSPACE}/m2-wrapper-${service}"]) {
                             dir(service) {
-                                sh '../mvnw clean verify -PbuildDocker'
+                                sh '../mvnw clean verify -PbuildDocker jacoco:report'
 
                                 def jacocoFile = sh(script: "find target -name jacoco.xml", returnStdout: true).trim()
                                 if (!jacocoFile) {
@@ -159,6 +159,35 @@ pipeline {
                 }
             }
         }
+
+        stage('Publish JaCoCo Coverage') {
+            when {
+                expression { SERVICES_CHANGED?.trim() != "" }
+            }
+            steps {
+                script {
+                    def servicesList = SERVICES_CHANGED.tokenize(',')
+
+                    if (servicesList.isEmpty()) {
+                        echo "ℹ️ No changed services found. Skipping coverage upload."
+                        return
+                    }
+
+                    for (service in servicesList) {
+                        echo "📊 Uploading JaCoCo coverage for ${service}..."
+                        dir(service) {
+                            jacoco(
+                                execPattern: 'target/jacoco.exec',
+                                classPattern: 'target/classes',
+                                sourcePattern: 'src/main/java',
+                                exclusionPattern: '**/test/**'
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
 
         stage('Build') {
             when {
