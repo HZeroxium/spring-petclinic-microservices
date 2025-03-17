@@ -58,7 +58,9 @@ pipeline {
 
                     // Ensure changes are not empty
                     if (!changes) {
-                        error("❌ No changed files detected! Ensure 'git diff --name-only ${baseCommit} HEAD' provides valid output.")
+                        echo "ℹ️ No changes detected. Skipping tests & build."
+                        SERVICES_CHANGED = ""
+                        return
                     }
 
                     // Convert the list into an array
@@ -92,7 +94,9 @@ pipeline {
 
                     // Ensure we have at least one changed service
                     if (changedServices.isEmpty()) {
-                        echo "❌ No relevant services detected. Verify file path matching logic."
+                        echo "ℹ️ No relevant services changed. Skipping tests & build."
+                        SERVICES_CHANGED = ""
+                        return
                     }
 
                     // Use properties() to persist the value
@@ -117,7 +121,8 @@ pipeline {
                     def servicesList = SERVICES_CHANGED.tokenize(',')
 
                     if (servicesList.isEmpty()) {
-                        error("❌ No changed services found.")
+                        echo "ℹ️ No changed services found. Skipping tests."
+                        return
                     }
 
                     // Run tests sequentially instead of in parallel
@@ -164,7 +169,8 @@ pipeline {
                     def servicesList = SERVICES_CHANGED.tokenize(',')
 
                     if (servicesList.isEmpty()) {
-                        error("❌ No changed services found.")
+                        echo "ℹ️ No changed services found. Skipping build."
+                        return
                     }
 
                     for (service in servicesList) {
