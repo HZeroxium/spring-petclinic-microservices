@@ -5,7 +5,7 @@ pipeline {
 
     stages {
         stage('Detect Changes') {
-            agent { label 'any' }
+            // agent { label 'any' }
             steps {
                 script {
 
@@ -194,7 +194,7 @@ pipeline {
 
 
         stage('Build (Maven)') {
-            agent { label 'maven-node' }
+            // agent { label 'maven-node' }
             when {
                 expression { SERVICES_CHANGED?.trim() != "" }
             }
@@ -222,9 +222,9 @@ pipeline {
             when {
                 expression { SERVICES_CHANGED?.trim() != "" }
             }
-            agent {
-                label 'docker-node' // Agent with Docker installed
-            }
+            // agent {
+            //     label 'docker-node' // Agent with Docker installed
+            // }
             steps {
                 script {
                     def servicesList = SERVICES_CHANGED.tokenize(',')
