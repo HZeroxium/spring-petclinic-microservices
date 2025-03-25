@@ -163,34 +163,34 @@ pipeline {
         //     }
         // }
 
-        stage('Publish JaCoCo Coverage') {
-            agent { label 'maven-node' }
-            when {
-                expression { SERVICES_CHANGED?.trim() != "" }
-            }
-            steps {
-                script {
-                    def servicesList = SERVICES_CHANGED.tokenize(',')
+        // stage('Publish JaCoCo Coverage') {
+        //     agent { label 'maven-node' }
+        //     when {
+        //         expression { SERVICES_CHANGED?.trim() != "" }
+        //     }
+        //     steps {
+        //         script {
+        //             def servicesList = SERVICES_CHANGED.tokenize(',')
 
-                    if (servicesList.isEmpty()) {
-                        echo "ℹ️ No changed services found. Skipping coverage upload."
-                        return
-                    }
+        //             if (servicesList.isEmpty()) {
+        //                 echo "ℹ️ No changed services found. Skipping coverage upload."
+        //                 return
+        //             }
 
-                    for (service in servicesList) {
-                        echo "📊 Uploading JaCoCo coverage for ${service}..."
-                        dir(service) {
-                            jacoco(
-                                execPattern: 'target/jacoco.exec',
-                                classPattern: 'target/classes',
-                                sourcePattern: 'src/main/java',
-                                exclusionPattern: '**/test/**'
-                            )
-                        }
-                    }
-                }
-            }
-        }
+        //             for (service in servicesList) {
+        //                 echo "📊 Uploading JaCoCo coverage for ${service}..."
+        //                 dir(service) {
+        //                     jacoco(
+        //                         execPattern: 'target/jacoco.exec',
+        //                         classPattern: 'target/classes',
+        //                         sourcePattern: 'src/main/java',
+        //                         exclusionPattern: '**/test/**'
+        //                     )
+        //                 }
+        //             }
+        //         }
+        //     }
+        // }
 
 
         stage('Build (Maven)') {
