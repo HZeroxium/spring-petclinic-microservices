@@ -203,17 +203,16 @@ pipeline {
                 // Create or ensure existence of preview folders
                 sh "mkdir -p values/preview/${featureName}"
 
-                // Write a dedicated YAML for this service in the preview environment
-                writeFile file: "values/preview/${featureName}/values.yaml", text: """
+                def valuesYaml = """
 image:
-  repository: hzeroxium/spring-petclinic-${serviceName}
-  tag: "${commitId}"
+  repository: hzeroxium/spring-petclinic-${params.SERVICE_NAME}
+  tag: "${IMAGE_TAG}"
   pullPolicy: IfNotPresent
 
 replicas: 1
 
 service:
-  port: ${servicePort}
+  port: ${SERVICE_PORTS[params.SERVICE_NAME] ?: 8080}
   type: ClusterIP
 
 env:
@@ -224,29 +223,7 @@ env:
   - name: EUREKA_CLIENT_SERVICEURL_DEFAULTZONE
     value: http://discovery-server.petclinic-dev.svc.cluster.local:8761/eureka
 """
-
-                // (Optional) Provide an Ingress example if needed
-                writeFile file: "values/preview/${featureName}/ingress.yaml", text: """
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: ${featureName}-ingress
-  namespace: preview-${featureName}
-  annotations:
-    kubernetes.io/ingress.class: nginx
-spec:
-  rules:
-    - host: ${featureName}.petclinic.local
-      http:
-        paths:
-          - pathType: Prefix
-            path: "/"
-            backend:
-              service:
-                name: ${serviceName}
-                port:
-                  number: ${servicePort}
-"""
+                writeFile file: "values/preview/${params.FEATURE_NAME}/values.yaml", text: valuesYaml
 
                 // Commit and push changes to GitOps repo
                 sh """

@@ -19,9 +19,9 @@ pipeline {
               git clone https://${GIT_USER}:${GIT_PASS}@github.com/HZeroxium/spring-petclinic-microservices-config.git config-repo
             """
             dir("config-repo") {
-              // xóa file values/preview/<feature>/values-<svc>.yaml
+              // Remove values/preview/<feature>/values.yaml
               sh "rm -f values/preview/${fea}/values-${svc}.yaml || true"
-              // xóa ingress preview
+              // Remove ingress.yaml
               sh "rm -f values/preview/${fea}/ingress.yaml || true"
 
               // commit & push
