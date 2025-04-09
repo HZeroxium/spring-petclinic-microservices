@@ -141,29 +141,26 @@ pipeline {
           try {
             // Log in to DockerHub
             withCredentials([usernamePassword(
-              credentialsId: 'hzeroxium-dockerhub',
-              usernameVariable: 'DOCKERHUB_USER',
-              passwordVariable: 'DOCKERHUB_PASSWORD'
+                credentialsId: 'hzeroxium-dockerhub',
+                usernameVariable: 'DOCKERHUB_USER',
+                passwordVariable: 'DOCKERHUB_PASSWORD'
             )]) {
-              sh "docker login -u ${DOCKERHUB_USER} -p ${DOCKERHUB_PASSWORD}"
+                sh "docker login -u ${DOCKERHUB_USER} -p ${DOCKERHUB_PASSWORD}"
             }
 
             // Change working directory to the service folder for proper build context.
             dir("${TEMP_DIR}/${params.SERVICE_NAME}") {
-              // Dynamically compute the artifact name from the target directory.
-              // Assumes the built JAR is located under "spring-petclinic-${SERVICE_NAME}/target"
-              def artifactName = sh(script: "ls spring-petclinic-${params.SERVICE_NAME}/target | grep -E '.jar$' | grep -v 'original' | head -n 1 | sed 's/\\.jar$//'", returnStdout: true).trim()
-              echo "Artifact name: ${artifactName}"
+                // Dynamically compute the artifact name from the build output.
+                // Assumes that the built JAR is located under "spring-petclinic-${SERVICE_NAME}/target"
 
-              sh """
-                docker build \\
-                  --build-arg SERVICE_NAME=${params.SERVICE_NAME} \\
-                  --build-arg EXPOSED_PORT=${servicePort} \\
-                  --build-arg ARTIFACT_NAME=${artifactName} \\
-                  -t ${imageWithTag} \\
-                  -t ${image}:latest \\
-                  .
-              """
+                sh """
+                  docker build \\
+                    --build-arg SERVICE_NAME=${params.SERVICE_NAME} \\
+                    --build-arg EXPOSED_PORT=${servicePort} \\
+                    -t ${imageWithTag} \\
+                    -t ${image}:latest \\
+                    .
+                """
             }
 
             sh "docker push ${imageWithTag}"
@@ -171,12 +168,12 @@ pipeline {
             sh "docker rmi ${imageWithTag} || true"
             sh "docker rmi ${image}:latest || true"
 
-          } catch (Exception e) {
+        } catch (Exception e) {
             error "Docker build/push failed: ${e.message}"
-          }
         }
       }
     }
+  }
 
     stage('Update GitOps Configuration') {
       steps {
