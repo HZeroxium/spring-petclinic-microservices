@@ -21,3 +21,11 @@ target/
 generated/
 
 **/.DS_Store
+
+scripts/docker/*
+
+config
+
+spring-petclinic-microservices-config
+
+.vscode

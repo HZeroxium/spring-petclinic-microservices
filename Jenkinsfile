@@ -1,5 +1,6 @@
+// Jenkinsfile
 def SERVICES_CHANGED = ""
-
+def DEPLOY_ENV = "${params.ENVIRONMENT ?: 'dev'}" // Default dev if not specified
 pipeline {
     agent any
 
@@ -222,9 +223,6 @@ pipeline {
             when {
                 expression { SERVICES_CHANGED?.trim() != "" }
             }
-            // agent {
-            //     label 'docker-node' // Agent with Docker installed
-            // }
             steps {
                 script {
                     def servicesList = SERVICES_CHANGED.tokenize(',')
@@ -232,6 +230,17 @@ pipeline {
                     if (servicesList.isEmpty()) {
                         error("❌ No changed services found. Verify 'Detect Changes' stage.")
                     }
+
+                    def servicePorts = [
+                        "spring-petclinic-admin-server": 9090,
+                        "spring-petclinic-api-gateway": 8080,
+                        "spring-petclinic-config-server": 8888,
+                        "spring-petclinic-customers-service": 8081,
+                        "spring-petclinic-discovery-server": 8761,
+                        "spring-petclinic-genai-service": 8084,
+                        "spring-petclinic-vets-service": 8083,
+                        "spring-petclinic-visits-service": 8082
+                    ]
 
                     // Login to DockerHub once before the loop
                     withCredentials([usernamePassword(
@@ -246,15 +255,22 @@ pipeline {
                     for (service in servicesList) {
                         echo "🐳 Building & pushing Docker image for ${service}..."
 
+                        // Extract short service name from the full name
+                        def shortServiceName = service.replaceFirst("spring-petclinic-", "")
+                        
+                        // Get the appropriate port for this service
+                        def servicePort = servicePorts.get(service, 8080)
+                        
                         def commitHash = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
                         def imageTag = "hzeroxium/${service}:${commitHash}"
 
                         sh """
-                        docker build \
-                            --build-arg SERVICE_NAME=${service} \
-                            -f Dockerfile \
-                            -t ${imageTag} \
-                            -t hzeroxium/${service}:latest \
+                        docker build \\
+                            --build-arg SERVICE_NAME=${shortServiceName} \\
+                            --build-arg EXPOSED_PORT=${servicePort} \\
+                            -f Dockerfile \\
+                            -t ${imageTag} \\
+                            -t hzeroxium/${service}:latest \\
                             .
                         docker push ${imageTag}
                         docker push hzeroxium/${service}:latest
@@ -266,106 +282,71 @@ pipeline {
             }
         }
 
-        // stage('Deploy to Kubernetes') {
-        //     when {
-        //         expression { SERVICES_CHANGED?.trim() != "" }
-        //         beforeAgent true
-        //     }
-        //     agent {
-        //         label 'k8s-node' // Agent with kubectl configured
-        //     }
-        //     environment {
-        //         DEPLOY_ENV = "${params.ENVIRONMENT ?: 'dev'}" // Default to 'dev' if not specified
-        //     }
-        //     steps {
-        //         script {
-        //             def servicesList = SERVICES_CHANGED.tokenize(',')
-        //             if (servicesList.isEmpty()) {
-        //                 echo "ℹ️ No changed services found. Skipping deployment."
-        //                 return
-        //             }
-
-        //             // Configure kubectl with credentials
-        //             withKubeConfig([
-        //                 credentialsId: 'k8s-credentials',
-        //                 serverUrl: 'https://kubernetes.example.com',
-        //                 namespace: "${DEPLOY_ENV}"
-        //             ]) {
-        //                 // Verify connection to cluster
-        //                 sh "kubectl config current-context"
-        //                 sh "kubectl get nodes -o wide"
-
-        //                 // Deploy each service sequentially
-        //                 for (service in servicesList) {
-        //                     echo "🚀 Deploying ${service} to Kubernetes environment: ${DEPLOY_ENV}..."
-
-        //                     def commitHash = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
-        //                     def imageTag = "hzeroxium/${service}:${commitHash}"
-
-        //                     try {
-        //                         // Generate deployment files with correct image tag
-        //                         dir('k8s-templates') {
-        //                             // Replace the image tag in the template
-        //                             sh """
-        //                             sed 's#__IMAGE_TAG__#${imageTag}#g' ${service}-template.yaml > ../k8s/${DEPLOY_ENV}/${service}.yaml
-        //                             """
-
-        //                             // Apply ConfigMaps first if they exist
-        //                             sh """
-        //                             if [ -f "../k8s/${DEPLOY_ENV}/${service}-configmap.yaml" ]; then
-        //                                 kubectl apply -f ../k8s/${DEPLOY_ENV}/${service}-configmap.yaml
-        //                             fi
-        //                             """
-
-        //                             // Apply main deployment
-        //                             sh "kubectl apply -f ../k8s/${DEPLOY_ENV}/${service}.yaml"
-
-        //                             // Wait for deployment to complete with timeout
-        //                             sh "kubectl rollout status deployment/${service} --timeout=180s"
-        //                         }
-
-        //                         // Verify deployment health
-        //                         sh """
-        //                         # Check if pods are running
-        //                         READY_PODS=\$(kubectl get pods -l app=${service} -o jsonpath='{.items[*].status.containerStatuses[0].ready}' | tr ' ' '\\n' | grep -c true)
-        //                         TOTAL_PODS=\$(kubectl get pods -l app=${service} --no-headers | wc -l)
-
-        //                         if [ "\$READY_PODS" -lt "\$TOTAL_PODS" ]; then
-        //                             echo "❌ Not all pods are ready for ${service}!"
-        //                             kubectl get pods -l app=${service}
-        //                             exit 1
-        //                         fi
-        //                         """
-
-        //                         echo "✅ Deployment successful for ${service}"
-        //                     } catch (Exception e) {
-        //                         echo "❌ Deployment failed for ${service}: ${e.message}"
-
-        //                         // Optionally rollback on failure
-        //                         if (params.AUTO_ROLLBACK) {
-        //                             echo "🔄 Rolling back ${service} deployment..."
-        //                             sh "kubectl rollout undo deployment/${service}"
-        //                         }
-
-        //                         // Fail the build or continue based on parameter
-        //                         if (params.FAIL_FAST) {
-        //                             error("Deployment failed for ${service}")
-        //                         }
-        //                     }
-        //                 }
-
-        //                 // Print summary
-        //                 echo "📊 Deployment Summary (${DEPLOY_ENV}):"
-        //                 sh "kubectl get deployments -l project=spring-petclinic"
-        //             }
-        //         }
-        //     }
-        //     post {
-        //         success {
-        //             echo "🎉 All deployments completed successfully in ${DEPLOY_ENV} environment!"
-        //         }
-        //     }
-        // }
+        stage('Update GitOps Repository') {
+            when {
+                expression { SERVICES_CHANGED?.trim() != "" }
+            }
+            steps {
+                script {
+                    def servicesList = SERVICES_CHANGED.tokenize(',')
+                    def commitHash = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
+                    
+                    // Create a temporary directory for the GitOps repo
+                    sh "rm -rf spring-petclinic-microservices-config || true"
+                    
+                    // Use credentials for Git operations
+                    withCredentials([usernamePassword(
+                        credentialsId: 'github-credentials', 
+                        usernameVariable: 'GIT_USERNAME', 
+                        passwordVariable: 'GIT_PASSWORD'
+                    )]) {
+                        // Clone with credentials
+                        sh """
+                        git clone https://\${GIT_USERNAME}:\${GIT_PASSWORD}@github.com/HZeroxium/spring-petclinic-microservices-config.git
+                        """
+                        
+                        dir('spring-petclinic-microservices-config') {
+                            
+                            // Update image tags for each changed service
+                            for (service in servicesList) {
+                                def shortServiceName = service.replaceFirst("spring-petclinic-", "")
+                                def valuesFile = "values/dev/values-${shortServiceName}.yaml"
+                                
+                                // Check if file exists and update with sed
+                                sh """
+                                if [ -f "${valuesFile}" ]; then
+                                    echo "Updating image tag in ${valuesFile}"
+                                    sed -i 's/\\(tag:\\s*\\).*/\\1"'${commitHash}'"/' ${valuesFile}
+                                else
+                                    echo "Warning: ${valuesFile} not found"
+                                fi
+                                """
+                            }
+                            
+                            // Configure Git and commit changes
+                            sh """
+                            git config user.email "jenkins@example.com"
+                            git config user.name "Jenkins CI"
+                            git status
+                            
+                            # Only commit if there are changes
+                            if ! git diff --quiet; then
+                                git add .
+                                git commit -m "Update image tags for ${SERVICES_CHANGED} to ${commitHash}"
+                                git push
+                                echo "✅ Successfully updated GitOps repository"
+                            else
+                                echo "ℹ️ No changes to commit in GitOps repository"
+                            fi
+                            """
+                        }
+                    }
+                    
+                    // Clean up after ourselves
+                    sh "rm -rf spring-petclinic-microservices-config || true"
+                }
+            }
+        }
     }
 
     post {

@@ -1,4 +1,4 @@
-# Dockerfile
+# spring-petclinic-api-gateway/Dockerfile
 # ================================
 # 🌱 Stage 1: Build and extract layers from Spring Boot executable jar
 # ================================
@@ -6,39 +6,30 @@ FROM eclipse-temurin:17 AS builder
 
 WORKDIR /application
 
-# Parameterize the artifact name and service name
-ARG SERVICE_NAME
-ARG VERSION=3.4.1
-ARG ARTIFACT_NAME=spring-petclinic-${SERVICE_NAME}-${VERSION}
+# Copy the compiled jar (do trước đó bạn đã chạy mvn package)
+ARG ARTIFACT_NAME=spring-petclinic-api-gateway-3.4.1
+COPY target/${ARTIFACT_NAME}.jar app.jar
 
-# Copy the pre-built jar - look in service subdirectory
-COPY spring-petclinic-${SERVICE_NAME}/target/${ARTIFACT_NAME}.jar app.jar
-
-# Extract Spring Boot layers
+# Extract Spring Boot layers using layertools (Spring Boot >= 2.3)
 RUN java -Djarmode=layertools -jar app.jar extract
 
 # ================================
-# 🚀 Stage 2: Runtime image 
+# 🚀 Stage 2: Runtime image (smallest possible)
 # ================================
 FROM eclipse-temurin:17-jre
 
+# Consistent with docker inspect:
 WORKDIR /application
-
-# Parameterize the port (each service has its own port)
-ARG EXPOSED_PORT
+ARG EXPOSED_PORT=8080
 EXPOSE ${EXPOSED_PORT}
 
-# Common to all services
 ENV SPRING_PROFILES_ACTIVE=docker
 
-# Copy layers in optimal order for caching
+# Copy Spring Boot layers from builder stage
 COPY --from=builder /application/dependencies/ ./
-RUN true
-COPY --from=builder /application/spring-boot-loader/ ./
-RUN true
 COPY --from=builder /application/snapshot-dependencies/ ./
-RUN true
+COPY --from=builder /application/spring-boot-loader/ ./
 COPY --from=builder /application/application/ ./
 
-# Standard entrypoint for all services
+# ENTRYPOINT
 ENTRYPOINT ["java", "org.springframework.boot.loader.launch.JarLauncher"]
