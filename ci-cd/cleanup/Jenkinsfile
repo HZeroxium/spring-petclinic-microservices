@@ -20,7 +20,7 @@ pipeline {
             """
             dir("config-repo") {
               // Remove values/preview/<feature>/values.yaml
-              sh "rm -f values/preview/${fea}/values-${svc}.yaml || true"
+              sh "rm -f values/preview/${fea}/values.yaml || true"
               // Remove ingress.yaml
               sh "rm -f values/preview/${fea}/ingress.yaml || true"
 
