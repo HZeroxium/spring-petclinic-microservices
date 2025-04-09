@@ -134,19 +134,9 @@ pipeline {
         script {
           echo "🐳 Building and pushing Docker image..."
 
-          def image           = "hzeroxium/spring-petclinic-${params.SERVICE_NAME}"
-          def imageWithTag    = "${image}:${IMAGE_TAG}"
-          def servicePort     = SERVICE_PORTS[params.SERVICE_NAME] ?: 8080
-          def dockerfilePath  = ""
-
-          // Determine the Dockerfile location:
-          // Prefer Dockerfile directly in the service folder if it exists, else check TEMP_DIR
-          if (fileExists("${TEMP_DIR}/${params.SERVICE_NAME}/Dockerfile")) {
-            dockerfilePath = "${TEMP_DIR}/${params.SERVICE_NAME}/Dockerfile"
-          } else {
-            // If not found under service directory, look at the top-level under TEMP_DIR
-            dockerfilePath = "${TEMP_DIR}/Dockerfile"
-          }
+          def image        = "hzeroxium/spring-petclinic-${params.SERVICE_NAME}"
+          def imageWithTag = "${image}:${IMAGE_TAG}"
+          def servicePort  = SERVICE_PORTS[params.SERVICE_NAME] ?: 8080
 
           try {
             // Log in to DockerHub
@@ -158,25 +148,26 @@ pipeline {
               sh "docker login -u ${DOCKERHUB_USER} -p ${DOCKERHUB_PASSWORD}"
             }
 
-            // We assume the Docker context is the entire service directory,
-            // so we change into TEMP_DIR so that -f can point to either file
-            // and '.' will include the needed code.
-            def shortServiceName = params.SERVICE_NAME.replaceFirst("spring-petclinic-", "")
+            // Change working directory to the service folder for proper build context.
+            dir("${TEMP_DIR}/${params.SERVICE_NAME}") {
+              // Dynamically compute the artifact name from the target directory.
+              // Assumes the built JAR is located under "spring-petclinic-${SERVICE_NAME}/target"
+              def artifactName = sh(script: "ls spring-petclinic-${params.SERVICE_NAME}/target | grep -E '.jar\$' | grep -v 'original' | head -n 1", returnStdout: true).trim()
+              echo "Artifact name: ${artifactName}"
 
-            sh """
-              cd ${TEMP_DIR}
-              docker build \\
-                --build-arg SERVICE_NAME=${shortServiceName} \\
-                --build-arg EXPOSED_PORT=${servicePort} \\
-                -t ${imageWithTag} \\
-                -t ${image}:latest \\
-                -f ${dockerfilePath} .
-            """
+              sh """
+                docker build \\
+                  --build-arg SERVICE_NAME=${params.SERVICE_NAME} \\
+                  --build-arg EXPOSED_PORT=${servicePort} \\
+                  --build-arg ARTIFACT_NAME=${artifactName} \\
+                  -t ${imageWithTag} \\
+                  -t ${image}:latest \\
+                  .
+              """
+            }
 
             sh "docker push ${imageWithTag}"
             sh "docker push ${image}:latest"
-
-            // Clean up local images
             sh "docker rmi ${imageWithTag} || true"
             sh "docker rmi ${image}:latest || true"
 
