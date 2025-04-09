@@ -202,10 +202,9 @@ pipeline {
               dir(configRepoDir) {
                 // Create or ensure existence of preview folders
                 sh "mkdir -p values/preview/${featureName}"
-                sh "mkdir -p apps/preview/${featureName}"
 
                 // Write a dedicated YAML for this service in the preview environment
-                writeFile file: "values/preview/${featureName}/values-${serviceName}.yaml", text: """
+                writeFile file: "values/preview/${featureName}/values.yaml", text: """
 image:
   repository: hzeroxium/spring-petclinic-${serviceName}
   tag: "${commitId}"
