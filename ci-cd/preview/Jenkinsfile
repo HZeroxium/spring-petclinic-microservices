@@ -152,7 +152,7 @@ pipeline {
             dir("${TEMP_DIR}/${params.SERVICE_NAME}") {
               // Dynamically compute the artifact name from the target directory.
               // Assumes the built JAR is located under "spring-petclinic-${SERVICE_NAME}/target"
-              def artifactName = sh(script: "ls spring-petclinic-${params.SERVICE_NAME}/target | grep -E '.jar\$' | grep -v 'original' | head -n 1", returnStdout: true).trim()
+              def artifactName = sh(script: "ls spring-petclinic-${params.SERVICE_NAME}/target | grep -E '.jar$' | grep -v 'original' | head -n 1 | sed 's/\\.jar$//'", returnStdout: true).trim()
               echo "Artifact name: ${artifactName}"
 
               sh """
