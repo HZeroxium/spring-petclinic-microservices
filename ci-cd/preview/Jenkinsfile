@@ -20,7 +20,7 @@ pipeline {
   parameters {
     string(name: 'FEATURE_NAME', defaultValue: 'test-vet-1', description: 'Enter feature name to preview (can be any name)')
     choice(name: 'SERVICE_NAME', choices: ['vets-service', 'visits-service', 'customers-service', 'api-gateway', 'admin-server', 'config-server', 'discovery-server', 'genai-service'], description: 'Select service to deploy')
-    string(name: 'BRANCH', defaultValue: 'dev', description: 'Branch code')
+    string(name: 'BRANCH', defaultValue: 'preview_cleanup', description: 'Branch code')
   }
 
   options {
@@ -82,7 +82,7 @@ pipeline {
         script {
           echo "🧱 Packaging service with Maven..."
           dir("${TEMP_DIR}/${params.SERVICE_NAME}") {
-            sh '../../../mvnw package -DskipTests'
+            sh '../mvnw package -DskipTests'
           }
         }
       }
