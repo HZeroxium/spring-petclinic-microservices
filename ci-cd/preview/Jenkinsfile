@@ -1,27 +1,26 @@
 // ci-cd/preview/Jenkinsfile
+
+// === GLOBAL VARIABLES ===
+GIT_REPO = 'https://github.com/HZeroxium/spring-petclinic-microservices'
+CONFIG_REPO = 'https://github.com/HZeroxium/spring-petclinic-microservices-config'
+SERVICE_PORTS = [
+  'vets-service': 8083,
+  'visits-service': 8082,
+  'customers-service': 8081,
+  'api-gateway': 8080,
+  'admin-server': 9090,
+  'config-server': 8888,
+  'discovery-server': 8761,
+  'genai-service': 8084
+]
+
 pipeline {
   agent any
-  
+
   parameters {
     string(name: 'FEATURE_NAME', defaultValue: 'test-vet-1', description: 'Enter feature name to preview (can be any name)')
     choice(name: 'SERVICE_NAME', choices: ['vets-service', 'visits-service', 'customers-service', 'api-gateway', 'admin-server', 'config-server', 'discovery-server', 'genai-service'], description: 'Select service to deploy')
     string(name: 'BRANCH', defaultValue: 'dev', description: 'Branch code')
-  }
-  
-  environment {
-    GIT_REPO = 'https://github.com/HZeroxium/spring-petclinic-microservices'
-    CONFIG_REPO = 'https://github.com/HZeroxium/spring-petclinic-microservices-config'
-    TEMP_DIR = "${WORKSPACE}/temp-${BUILD_NUMBER}"
-    SERVICE_PORTS = [
-      'vets-service': 8083,
-      'visits-service': 8082,
-      'customers-service': 8081,
-      'api-gateway': 8080,
-      'admin-server': 9090,
-      'config-server': 8888,
-      'discovery-server': 8761,
-      'genai-service': 8084
-    ]
   }
 
   options {
@@ -34,20 +33,18 @@ pipeline {
       steps {
         script {
           echo "🔍 Validating parameters..."
-          
           if (!params.FEATURE_NAME?.trim()) {
             error "Feature name cannot be empty"
           }
-          
           if (!params.SERVICE_NAME?.trim()) {
             error "Service name cannot be empty"
           }
-          
           if (!params.BRANCH?.trim()) {
             error "Branch name cannot be empty"
           }
-          
-          // Create temp directory
+
+          // Global TEMP_DIR used across stages
+          TEMP_DIR = "${env.WORKSPACE}/temp-${env.BUILD_NUMBER}"
           sh "mkdir -p ${TEMP_DIR}"
         }
       }
@@ -57,23 +54,21 @@ pipeline {
       steps {
         script {
           echo "📂 Checking out code from ${params.BRANCH}..."
-          
+
           try {
             dir("${TEMP_DIR}/${params.SERVICE_NAME}") {
-              checkout([$class: 'GitSCM', 
-                branches: [[name: "${params.BRANCH}"]], 
-                extensions: [[$class: 'CloneOption', depth: 1, noTags: false, shallow: true]], 
-                userRemoteConfigs: [[url: "${env.GIT_REPO}"]]
+              checkout([$class: 'GitSCM',
+                branches: [[name: "${params.BRANCH}"]],
+                extensions: [[$class: 'CloneOption', depth: 1, noTags: false, shallow: true]],
+                userRemoteConfigs: [[url: "${GIT_REPO}"]]
               ])
-              
-              // Verify Dockerfile exists
+
               if (!fileExists("Dockerfile") && !fileExists("../Dockerfile")) {
                 error "Dockerfile not found in service directory or parent directory"
               }
-              
-              // Store commit ID
-              env.IMAGE_TAG = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
-              echo "✅ Using commit: ${env.IMAGE_TAG}"
+
+              IMAGE_TAG = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
+              echo "✅ Using commit: ${IMAGE_TAG}"
             }
           } catch (Exception e) {
             error "Failed to checkout branch: ${e.message}"
@@ -87,29 +82,24 @@ pipeline {
         script {
           echo "🐳 Building Docker image..."
           def image = "hzeroxium/spring-petclinic-${params.SERVICE_NAME}"
-          def imageWithTag = "${image}:${env.IMAGE_TAG}"
+          def imageWithTag = "${image}:${IMAGE_TAG}"
           def dockerfileLocation = ""
-          
-          // Find the correct Dockerfile location
+          def servicePort = SERVICE_PORTS[params.SERVICE_NAME] ?: 8080
+
           if (fileExists("${TEMP_DIR}/${params.SERVICE_NAME}/Dockerfile")) {
             dockerfileLocation = "${TEMP_DIR}/${params.SERVICE_NAME}/Dockerfile"
           } else {
             dockerfileLocation = "${TEMP_DIR}/Dockerfile"
           }
-          
-          // Configure service port
-          def servicePort = SERVICE_PORTS[params.SERVICE_NAME] ?: 8080
-          
+
           try {
             withCredentials([usernamePassword(credentialsId: 'hzeroxium-dockerhub',
               usernameVariable: 'DOCKERHUB_USER', passwordVariable: 'DOCKERHUB_PASSWORD')]) {
-              
+
               sh "docker login -u ${DOCKERHUB_USER} -p ${DOCKERHUB_PASSWORD}"
-              
-              // Extract short service name without prefix
+
               def shortServiceName = params.SERVICE_NAME.replaceFirst("spring-petclinic-", "")
-              
-              // Build with appropriate arguments
+
               sh """
                 cd ${TEMP_DIR}
                 docker build \
@@ -119,11 +109,10 @@ pipeline {
                   -t ${image}:latest \
                   -f ${dockerfileLocation} .
               """
-              
+
               sh "docker push ${imageWithTag}"
               sh "docker push ${image}:latest"
-              
-              // Cleanup to save space
+
               sh "docker rmi ${imageWithTag} || true"
               sh "docker rmi ${image}:latest || true"
             }
@@ -140,26 +129,24 @@ pipeline {
           echo "🔄 Updating GitOps configuration..."
           def fea = params.FEATURE_NAME
           def svc = params.SERVICE_NAME
-          def commitId = env.IMAGE_TAG
-          def servicePort = SERVICE_PORTS[params.SERVICE_NAME] ?: 8080
-          
+          def commitId = IMAGE_TAG
+          def servicePort = SERVICE_PORTS[svc] ?: 8080
+          def configRepoPath = "${TEMP_DIR}/config-repo"
+
           try {
-            sh "rm -rf ${TEMP_DIR}/config-repo"
-            
+            sh "rm -rf ${configRepoPath}"
+
             withCredentials([usernamePassword(credentialsId: 'github-credentials',
               usernameVariable: 'GIT_USER', passwordVariable: 'GIT_PASS')]) {
-              
-              // Clone config repo
+
               sh """
-                git clone https://${GIT_USER}:${GIT_PASS}@github.com/HZeroxium/spring-petclinic-microservices-config.git ${TEMP_DIR}/config-repo
+                git clone https://${GIT_USER}:${GIT_PASS}@github.com/HZeroxium/spring-petclinic-microservices-config.git ${configRepoPath}
               """
-              
-              dir("${TEMP_DIR}/config-repo") {
-                // Create directory structure
+
+              dir(configRepoPath) {
                 sh "mkdir -p values/preview/${fea}"
                 sh "mkdir -p apps/preview/${fea}"
-                
-                // Create values file with the correct service port
+
                 writeFile file: "values/preview/${fea}/values-${svc}.yaml", text: """
 image:
   repository: hzeroxium/spring-petclinic-${svc}
@@ -181,8 +168,6 @@ env:
     value: http://discovery-server.petclinic-dev.svc.cluster.local:8761/eureka
 """
 
-
-                // Optionally, generate ingress for this preview
                 writeFile file: "values/preview/${fea}/ingress.yaml", text: """
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -205,7 +190,6 @@ spec:
                   number: ${servicePort}
 """
 
-                // Commit & push changes
                 sh """
                   git config user.name "jenkins"
                   git config user.email "jenkins@company.com"
@@ -213,7 +197,7 @@ spec:
                   git commit -m "[Preview] ${fea}: ${svc} -> ${commitId}"
                   git push
                 """
-                
+
                 echo "✅ GitOps configuration updated successfully"
               }
             }
@@ -224,16 +208,16 @@ spec:
       }
     }
   }
-  
+
   post {
     success {
       echo """
       🎉 PREVIEW ENVIRONMENT READY! 🎉
-      
+
       Service: ${params.SERVICE_NAME}
       Feature: ${params.FEATURE_NAME}
       URL: http://${params.FEATURE_NAME}.petclinic.local
-      
+
       The preview environment will be automatically updated by ArgoCD.
       """
     }
@@ -241,7 +225,6 @@ spec:
       echo "❌ Pipeline failed! Check the logs for details."
     }
     always {
-      // Clean up workspace
       sh "rm -rf ${TEMP_DIR} || true"
     }
   }
