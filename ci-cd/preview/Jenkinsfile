@@ -1,9 +1,9 @@
 // ci-cd/preview/Jenkinsfile
 
 // === GLOBAL VARIABLES ===
-GIT_REPO = 'https://github.com/HZeroxium/spring-petclinic-microservices'
-CONFIG_REPO = 'https://github.com/HZeroxium/spring-petclinic-microservices-config'
-SERVICE_PORTS = [
+def GIT_REPO = 'https://github.com/HZeroxium/spring-petclinic-microservices'
+def CONFIG_REPO = 'https://github.com/HZeroxium/spring-petclinic-microservices-config'
+def SERVICE_PORTS = [
   'vets-service': 8083,
   'visits-service': 8082,
   'customers-service': 8081,
