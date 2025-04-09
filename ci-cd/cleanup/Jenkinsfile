@@ -2,8 +2,8 @@
 pipeline {
   agent any
   parameters {
-    string(name: 'FEATURE_NAME', defaultValue: 'test-vet-1', description: 'Tên feature')
-    string(name: 'SERVICE_NAME', defaultValue: 'vets-service', description: 'Tên service cần xóa')
+    string(name: 'FEATURE_NAME', defaultValue: 'test-vet-1', description: 'Enter feature name to cleanup (can be any name)')
+    choice(name: 'SERVICE_NAME', choices: ['vets-service', 'visits-service', 'customers-service', 'api-gateway', 'admin-server', 'config-server', 'discovery-server', 'genai-service'], description: 'Select service to cleanup')
   }
   stages {
     stage('Clean GitOps') {
@@ -22,7 +22,7 @@ pipeline {
               // xóa file values/preview/<feature>/values-<svc>.yaml
               sh "rm -f values/preview/${fea}/values-${svc}.yaml || true"
               // xóa ingress preview
-              sh "rm -f ingress/preview/${fea}-ingress.yaml || true"
+              sh "rm -f values/preview/${fea}/ingress.yaml || true"
 
               // commit & push
               sh """
