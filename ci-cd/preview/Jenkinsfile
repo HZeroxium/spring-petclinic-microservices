@@ -77,6 +77,17 @@ pipeline {
       }
     }
 
+    stage('Build Jar') {
+      steps {
+        script {
+          echo "🧱 Packaging service with Maven..."
+          dir("${TEMP_DIR}/${params.SERVICE_NAME}") {
+            sh '../../../mvnw package -DskipTests'
+          }
+        }
+      }
+    }
+
     stage('Build & Push Docker Image') {
       steps {
         script {
