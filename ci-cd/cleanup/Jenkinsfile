@@ -11,6 +11,7 @@ pipeline {
         script {
           def fea = params.FEATURE_NAME
           def svc = params.SERVICE_NAME
+          def previewPath = "preview-${fea}"
 
           withCredentials([usernamePassword(credentialsId: 'github-credentials', 
             usernameVariable: 'GIT_USER', passwordVariable: 'GIT_PASS')]) {
@@ -19,27 +20,41 @@ pipeline {
               git clone https://${GIT_USER}:${GIT_PASS}@github.com/HZeroxium/spring-petclinic-microservices-config.git config-repo
             """
             dir("config-repo") {
-              // Remove values/preview/<feature>/values.yaml
-              sh "rm -f values/preview/${fea}/values.yaml || true"
-              // Remove ingress.yaml
-              sh "rm -f values/preview/${fea}/ingress.yaml || true"
+              // Remove all application files for the preview environment
+              sh "rm -rf apps/preview/${previewPath} || true"
+              
+              // Remove all values files for the preview environment
+              sh "rm -rf values/preview/${previewPath} || true"
+              
+              // Log what's being deleted for clarity
+              echo "Removing all files in apps/preview/${previewPath} and values/preview/${previewPath}"
 
               // commit & push
               sh """
                 git config user.name "jenkins"
                 git config user.email "jenkins@company.com"
                 git add .
-                if git diff --cached --quiet; then
-                  echo "No changes to remove."
-                else
-                  git commit -m "[Cleanup] Remove ${fea} - ${svc}"
-                  git push
-                fi
+                git commit -m "[Cleanup] Remove all preview environment files for ${fea}" || echo "No changes to commit."
+                git push || echo "Nothing to push."
               """
             }
           }
         }
       }
+    }
+  }
+  
+  post {
+    success {
+      echo """
+      🧹 CLEANUP COMPLETED SUCCESSFULLY!
+      
+      All preview environment files for feature '${params.FEATURE_NAME}' have been removed.
+      This includes all application files and values files for all services.
+      """
+    }
+    failure {
+      echo "❌ Cleanup failed! Check the logs for details."
     }
   }
 }
