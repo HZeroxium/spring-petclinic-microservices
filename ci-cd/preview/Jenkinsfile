@@ -175,71 +175,107 @@ pipeline {
     }
   }
 
-    stage('Update GitOps Configuration') {
+    stage('Update GitOps Preview Config') {
       steps {
         script {
-          echo "🔄 Updating GitOps configuration (ArgoCD) repository..."
-          def featureName   = params.FEATURE_NAME
-          def serviceName   = params.SERVICE_NAME
-          def commitId      = IMAGE_TAG
-          def servicePort   = SERVICE_PORTS[serviceName] ?: 8080
-          def configRepoDir = "${TEMP_DIR}/config-repo"
+          def previewPath = "preview-${params.FEATURE_NAME}"
+          def configRepo = "${TEMP_DIR}/config-repo"
 
-          try {
-            // Remove old config repo directory if it exists
-            sh "rm -rf ${configRepoDir}"
-
-            withCredentials([usernamePassword(
+          withCredentials([usernamePassword(
               credentialsId: 'github-credentials',
               usernameVariable: 'GIT_USER',
               passwordVariable: 'GIT_PASS'
-            )]) {
-              // Clone the GitOps config repo
-              sh """
-                git clone https://${GIT_USER}:${GIT_PASS}@github.com/HZeroxium/spring-petclinic-microservices-config.git ${configRepoDir}
-              """
+          )]) {
+            sh "git clone https://${GIT_USER}:${GIT_PASS}@github.com/HZeroxium/spring-petclinic-microservices-config.git ${configRepo}"
+          }
 
-              dir(configRepoDir) {
-                // Create or ensure existence of preview folders
-                sh "mkdir -p values/preview/${featureName}"
+          dir(configRepo) {
+            def appsDir = "apps/preview/${previewPath}"
+            def valuesDir = "values/preview/${previewPath}"
+            sh "mkdir -p ${appsDir} ${valuesDir}"
 
-                def valuesYaml = """
+            SERVICES.each { svc, port ->
+              def tag = (svc == params.SERVICE_NAME) ? IMAGE_TAG : "latest"
+
+              writeFile file: "${valuesDir}/values-${svc}.yaml", text: """
 image:
-  repository: hzeroxium/spring-petclinic-${params.SERVICE_NAME}
-  tag: "${IMAGE_TAG}"
+  repository: hzeroxium/spring-petclinic-${svc}
+  tag: "${tag}"
   pullPolicy: IfNotPresent
 
 replicas: 1
 
 service:
-  port: ${SERVICE_PORTS[params.SERVICE_NAME] ?: 8080}
+  name: ${svc}
+  port: ${port}
   type: ClusterIP
 
 env:
   - name: SPRING_PROFILES_ACTIVE
     value: docker
   - name: CONFIG_SERVER_URL
-    value: http://config-server.petclinic-dev.svc.cluster.local:8888
+    value: http://config-server:8888
   - name: EUREKA_CLIENT_SERVICEURL_DEFAULTZONE
-    value: http://discovery-server.petclinic-dev.svc.cluster.local:8761/eureka
+    value: http://discovery-server:8761/eureka
+
+resources:
+  limits:
+    cpu: "500m"
+    memory: "512Mi"
+  requests:
+    cpu: "200m"
+    memory: "256Mi"
+
+readinessProbe:
+  path: /actuator/health
+  port: ${port}
+  initialDelaySeconds: 30
+  periodSeconds: 10
+
+livenessProbe:
+  path: /actuator/health
+  port: ${port}
+  initialDelaySeconds: 60
+  periodSeconds: 15
 """
-                writeFile file: "values/preview/${params.FEATURE_NAME}/values.yaml", text: valuesYaml
 
-                // Commit and push changes to GitOps repo
-                sh """
-                  git config user.name "jenkins"
-                  git config user.email "jenkins@company.com"
-                  git add .
-                  git commit -m "[Preview] ${featureName}: ${serviceName} -> ${commitId}" || echo "No changes to commit."
-                  git push || echo "Nothing to push."
-                """
-
-                echo "✅ GitOps configuration updated successfully"
-              }
+              writeFile file: "${appsDir}/${svc}.yaml", text: """
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ${svc}-${previewPath}
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: 'https://github.com/HZeroxium/spring-petclinic-microservices-config'
+    targetRevision: HEAD
+    path: charts/spring-petclinic-service
+    helm:
+      valueFiles:
+        - ../../values/preview/${previewPath}/values-${svc}.yaml
+      releaseName: ${svc}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: preview-${previewPath}
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - PruneLast=true
+      - ApplyOutOfSyncOnly=true
+"""
             }
 
-          } catch (Exception e) {
-            error "Failed to update GitOps config: ${e.message}"
+            sh """
+              git config user.name "jenkins"
+              git config user.email "jenkins@company.com"
+              git add .
+              git commit -m "[Preview] ${previewPath} updated for ${params.SERVICE_NAME} -> ${IMAGE_TAG}" || echo "No changes to commit."
+              git push || echo "Nothing to push."
+            """
           }
         }
       }
