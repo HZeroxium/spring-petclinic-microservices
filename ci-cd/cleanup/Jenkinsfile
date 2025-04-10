@@ -25,6 +25,9 @@ pipeline {
               
               // Remove all values files for the preview environment
               sh "rm -rf values/preview/${previewPath} || true"
+
+              // Remove ingress in /ingress/preview/${previewPath}
+              sh "rm -rf ingress/preview/${previewPath} || true"
               
               // Log what's being deleted for clarity
               echo "Removing all files in apps/preview/${previewPath} and values/preview/${previewPath}"

@@ -197,6 +197,7 @@ pipeline {
               def tag = (svc == params.SERVICE_NAME) ? IMAGE_TAG : "latest"
 
               writeFile file: "${valuesDir}/values-${svc}.yaml", text: """
+# values/preview/${previewPath}/values-${svc}.yaml
 image:
   repository: hzeroxium/spring-petclinic-${svc}
   tag: "${tag}"
@@ -239,6 +240,7 @@ livenessProbe:
 """
 
               writeFile file: "${appsDir}/${svc}.yaml", text: """
+# apps/preview/${previewPath}/${svc}.yaml
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -267,6 +269,53 @@ spec:
       - ApplyOutOfSyncOnly=true
 """
             }
+
+            writeFile file: "${appsDir}/ingress.yaml", text: """
+# apps/preview/${previewPath}/ingress.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ingress-${previewPath}
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: 'https://github.com/HZeroxium/spring-petclinic-microservices-config'
+    targetRevision: HEAD
+    path: ingress/preview/${previewPath}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: preview-${previewPath}
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+"""
+
+            def ingressPath = "ingress/preview/${previewPath}"
+            sh "mkdir -p ${ingressPath}"
+            writeFile file: "${ingressPath}/ingress-${previewPath}.yaml", text: """
+# ingress/preview/${previewPath}/ingress-${previewPath}.yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: petclinic-ingress-preview
+  namespace: preview-${previewPath}
+  labels:
+    app.kubernetes.io/name: petclinic-ingress-preview
+spec:
+  rules:
+    - host: ${params.FEATURE_NAME}.petclinic.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: api-gateway
+                port:
+                  number: 8080
+"""
 
             sh """
               git config user.name "jenkins"
