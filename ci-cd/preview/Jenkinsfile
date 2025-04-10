@@ -8,7 +8,7 @@ def GIT_REPO = 'https://github.com/HZeroxium/spring-petclinic-microservices'
 def CONFIG_REPO = 'https://github.com/HZeroxium/spring-petclinic-microservices-config'
 
 // Map of services to their default exposed ports
-def SERVICE_PORTS = [
+def SERVICES = [
   'vets-service'       : 8083,
   'visits-service'     : 8082,
   'customers-service'  : 8081,
@@ -59,7 +59,6 @@ pipeline {
   }
 
   stages {
-
     stage('Validate Parameters') {
       steps {
         script {
@@ -136,31 +135,31 @@ pipeline {
 
           def image        = "hzeroxium/spring-petclinic-${params.SERVICE_NAME}"
           def imageWithTag = "${image}:${IMAGE_TAG}"
-          def servicePort  = SERVICE_PORTS[params.SERVICE_NAME] ?: 8080
+          def servicePort  = SERVICES[params.SERVICE_NAME] ?: 8080
 
           try {
             // Log in to DockerHub
             withCredentials([usernamePassword(
-                credentialsId: 'hzeroxium-dockerhub',
-                usernameVariable: 'DOCKERHUB_USER',
-                passwordVariable: 'DOCKERHUB_PASSWORD'
+              credentialsId: 'hzeroxium-dockerhub',
+              usernameVariable: 'DOCKERHUB_USER',
+              passwordVariable: 'DOCKERHUB_PASSWORD'
             )]) {
-                sh "docker login -u ${DOCKERHUB_USER} -p ${DOCKERHUB_PASSWORD}"
+              sh "docker login -u ${DOCKERHUB_USER} -p ${DOCKERHUB_PASSWORD}"
             }
 
             // Change working directory to the service folder for proper build context.
             dir("${TEMP_DIR}/${params.SERVICE_NAME}") {
-                // Dynamically compute the artifact name from the build output.
-                // Assumes that the built JAR is located under "spring-petclinic-${SERVICE_NAME}/target"
+              // Dynamically compute the artifact name from the build output.
+              // Assumes that the built JAR is located under "spring-petclinic-${SERVICE_NAME}/target"
 
-                sh """
-                  docker build \\
-                    --build-arg SERVICE_NAME=${params.SERVICE_NAME} \\
-                    --build-arg EXPOSED_PORT=${servicePort} \\
-                    -t ${imageWithTag} \\
-                    -t ${image}:latest \\
-                    .
-                """
+              sh """
+                docker build \\
+                  --build-arg SERVICE_NAME=${params.SERVICE_NAME} \\
+                  --build-arg EXPOSED_PORT=${servicePort} \\
+                  -t ${imageWithTag} \\
+                  -t ${image}:latest \\
+                  .
+              """
             }
 
             sh "docker push ${imageWithTag}"
@@ -168,12 +167,12 @@ pipeline {
             sh "docker rmi ${imageWithTag} || true"
             sh "docker rmi ${image}:latest || true"
 
-        } catch (Exception e) {
+          } catch (Exception e) {
             error "Docker build/push failed: ${e.message}"
+          }
         }
       }
     }
-  }
 
     stage('Update GitOps Preview Config') {
       steps {
@@ -182,9 +181,9 @@ pipeline {
           def configRepo = "${TEMP_DIR}/config-repo"
 
           withCredentials([usernamePassword(
-              credentialsId: 'github-credentials',
-              usernameVariable: 'GIT_USER',
-              passwordVariable: 'GIT_PASS'
+            credentialsId: 'github-credentials',
+            usernameVariable: 'GIT_USER',
+            passwordVariable: 'GIT_PASS'
           )]) {
             sh "git clone https://${GIT_USER}:${GIT_PASS}@github.com/HZeroxium/spring-petclinic-microservices-config.git ${configRepo}"
           }
