@@ -217,6 +217,8 @@ env:
     value: http://config-server:8888
   - name: EUREKA_CLIENT_SERVICEURL_DEFAULTZONE
     value: http://discovery-server:8761/eureka
+  - name: EUREKA_INSTANCE_HOSTNAME
+    value: ${svc}
 
 resources:
   limits:
