@@ -136,7 +136,7 @@ pipeline {
         }
 
         stage('Test & Coverage Check') {
-            agent { label 'maven-node' }
+            // agent { label 'maven-node' }
             when {
                 expression { SERVICES_CHANGED?.trim() != "" }
             }
@@ -185,7 +185,7 @@ pipeline {
         }
 
         stage('Publish JaCoCo Coverage') {
-            agent { label 'maven-node' }
+            // agent { label 'maven-node' }
             when {
                 expression { SERVICES_CHANGED?.trim() != "" }
             }
