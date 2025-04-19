@@ -1,10 +1,30 @@
 // Jenkinsfile
 def SERVICES_CHANGED = ""
 def DEPLOY_ENV = "${params.ENVIRONMENT ?: 'dev'}" // Default dev if not specified
+def COMMIT_HASH = ""
+def GIT_TAG = ""
+
 pipeline {
     agent any
 
+
     stages {
+        stage('Init Commit and Tag') {
+            steps {
+                script {
+                    sh 'git fetch --all --tags --prune'
+                    COMMIT_HASH = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
+                    GIT_TAG = sh(script: "git describe --tags --exact-match || echo ''", returnStdout: true).trim()
+                    DEPLOY_ENV = params.ENVIRONMENT ?: (GIT_TAG.startsWith("v") ? "staging" : "dev")
+
+                    echo "🔍 Commit Hash: ${COMMIT_HASH}"
+                    echo "🔖 Git Tag: ${GIT_TAG ?: 'none'}"
+                    echo "🚀 Deploy Environment: ${DEPLOY_ENV}"
+                }
+            }
+        }
+
+
         stage('Detect Changes') {
             // agent { label 'any' }
             steps {
@@ -81,7 +101,7 @@ pipeline {
                         "spring-petclinic-config-server",
                         "spring-petclinic-customers-service",
                         "spring-petclinic-discovery-server",
-                        "spring-petclinic-genai-service",
+                        // "spring-petclinic-genai-service",
                         "spring-petclinic-vets-service",
                         "spring-petclinic-visits-service",
                     ]
@@ -116,7 +136,7 @@ pipeline {
         }
 
         // stage('Test & Coverage Check') {
-        //     agent { label 'maven-node' }
+        //     // agent { label 'maven-node' }
         //     when {
         //         expression { SERVICES_CHANGED?.trim() != "" }
         //     }
@@ -165,7 +185,7 @@ pipeline {
         // }
 
         // stage('Publish JaCoCo Coverage') {
-        //     agent { label 'maven-node' }
+        //     // agent { label 'maven-node' }
         //     when {
         //         expression { SERVICES_CHANGED?.trim() != "" }
         //     }
@@ -253,16 +273,11 @@ pipeline {
 
                     // Sequential Docker builds and pushes
                     for (service in servicesList) {
-                        echo "🐳 Building & pushing Docker image for ${service}..."
-
-                        // Extract short service name from the full name
                         def shortServiceName = service.replaceFirst("spring-petclinic-", "")
-                        
-                        // Get the appropriate port for this service
                         def servicePort = servicePorts.get(service, 8080)
-                        
-                        def commitHash = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
-                        def imageTag = "hzeroxium/${service}:${commitHash}"
+                        def imageBase = "hzeroxium/${service}"
+                        def imageTag = "${imageBase}:${COMMIT_HASH}"
+                        def releaseTag = GIT_TAG ? "${imageBase}:${GIT_TAG}" : ""
 
                         sh """
                         docker build \\
@@ -270,12 +285,14 @@ pipeline {
                             --build-arg EXPOSED_PORT=${servicePort} \\
                             -f Dockerfile \\
                             -t ${imageTag} \\
-                            -t hzeroxium/${service}:latest \\
+                            -t ${imageBase}:latest \\
                             .
                         docker push ${imageTag}
-                        docker push hzeroxium/${service}:latest
+                        docker push ${imageBase}:latest
+                        ${GIT_TAG ? "docker tag ${imageTag} ${releaseTag} && docker push ${releaseTag}" : ""}
                         docker rmi ${imageTag} || true
-                        docker rmi hzeroxium/${service}:latest || true
+                        docker rmi ${imageBase}:latest || true
+                        ${GIT_TAG ? "docker rmi ${releaseTag} || true" : ""}
                         """
                     }
                 }
@@ -289,10 +306,13 @@ pipeline {
             steps {
                 script {
                     def servicesList = SERVICES_CHANGED.tokenize(',')
-                    def commitHash = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
+                    def finalTag = GIT_TAG ?: COMMIT_HASH
+                    def folder = "spring-petclinic-microservices-config"
+                    def valuesDir = "values/${DEPLOY_ENV}"
+
                     
                     // Create a temporary directory for the GitOps repo
-                    sh "rm -rf spring-petclinic-microservices-config || true"
+                    sh "rm -rf ${folder} || true"
                     
                     // Use credentials for Git operations
                     withCredentials([usernamePassword(
@@ -310,13 +330,13 @@ pipeline {
                             // Update image tags for each changed service
                             for (service in servicesList) {
                                 def shortServiceName = service.replaceFirst("spring-petclinic-", "")
-                                def valuesFile = "values/dev/values-${shortServiceName}.yaml"
+                                def valuesFile = "${valuesDir}/values-${shortServiceName}.yaml"
                                 
                                 // Check if file exists and update with sed
                                 sh """
                                 if [ -f "${valuesFile}" ]; then
-                                    echo "Updating image tag in ${valuesFile}"
-                                    sed -i 's/\\(tag:\\s*\\).*/\\1"'${commitHash}'"/' ${valuesFile}
+                                    echo "Updating tag in ${valuesFile} to ${finalTag}"
+                                    sed -i 's/\\(tag:\\s*\\).*/\\1"${finalTag}"/' ${valuesFile}
                                 else
                                     echo "Warning: ${valuesFile} not found"
                                 fi
@@ -332,7 +352,7 @@ pipeline {
                             # Only commit if there are changes
                             if ! git diff --quiet; then
                                 git add .
-                                git commit -m "Update image tags for ${SERVICES_CHANGED} to ${commitHash}"
+                                git commit -m "Update ${DEPLOY_ENV} image tags for ${SERVICES_CHANGED} to ${finalTag}"
                                 git push
                                 echo "✅ Successfully updated GitOps repository"
                             else
@@ -343,7 +363,7 @@ pipeline {
                     }
                     
                     // Clean up after ourselves
-                    sh "rm -rf spring-petclinic-microservices-config || true"
+                    sh "rm -rf ${folder} || true"
                 }
             }
         }

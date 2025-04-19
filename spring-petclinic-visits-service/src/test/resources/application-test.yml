@@ -1,7 +1,7 @@
 spring:
   cloud:
     config:
-      enabled: false
+      enabled: false # Disables config server for tests
   sql:
     init:
       schema-locations: classpath*:db/hsqldb/schema.sql
@@ -12,7 +12,6 @@ spring:
 
 eureka:
   client:
-    enabled: false
+    enabled: false # Disables service discovery for tests
 
 logging.level.org.springframework: INFO
-

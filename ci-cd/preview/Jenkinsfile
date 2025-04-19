@@ -1,109 +1,356 @@
 // ci-cd/preview/Jenkinsfile
+//
+// This Jenkinsfile is used to build and deploy a single Spring Boot microservice (from a monorepo)
+// to a preview environment, leveraging a GitOps approach with ArgoCD.
+//
+// --- GLOBAL DEFS ---
+def GIT_REPO = 'https://github.com/HZeroxium/spring-petclinic-microservices'
+def CONFIG_REPO = 'https://github.com/HZeroxium/spring-petclinic-microservices-config'
+
+// Map of services to their default exposed ports
+def SERVICES = [
+  'vets-service'       : 8083,
+  'visits-service'     : 8082,
+  'customers-service'  : 8081,
+  'api-gateway'        : 8080,
+  'admin-server'       : 9090,
+  'config-server'      : 8888,
+  'discovery-server'   : 8761,
+  'genai-service'      : 8084
+]
+
+// We explicitly declare these to avoid Jenkins warnings about missing `def`
+def TEMP_DIR = ''
+def IMAGE_TAG = ''
+
 pipeline {
   agent any
+
   parameters {
-    string(name: 'FEATURE_NAME', defaultValue: 'test-vet-1', description: 'Tên feature tuỳ ý')
-    string(name: 'SERVICE_NAME', defaultValue: 'vets-service', description: 'Tên service (vets-service, visits-service, ...')
-    string(name: 'BRANCH', defaultValue: 'dev_vets_branch', description: 'Branch code')
+    string(
+      name: 'FEATURE_NAME',
+      defaultValue: 'test-vet-1',
+      description: 'Enter a feature name to be used for the preview environment (e.g., "test-vet-1")'
+    )
+    choice(
+      name: 'SERVICE_NAME',
+      choices: [
+        'vets-service',
+        'visits-service',
+        'customers-service',
+        'api-gateway',
+        'admin-server',
+        'config-server',
+        'discovery-server',
+        'genai-service'
+      ],
+      description: 'Select which service to deploy to the preview environment'
+    )
+    string(
+      name: 'BRANCH',
+      defaultValue: 'preview_cleanup',
+      description: 'Branch name to be checked out from the monorepo'
+    )
   }
-  environment {
-    GIT_REPO = 'https://github.com/HZeroxium/spring-petclinic-microservices'
-    CONFIG_REPO = 'https://github.com/HZeroxium/spring-petclinic-microservices-config'
+
+  options {
+    timeout(time: 30, unit: 'MINUTES')    // Limit overall run time
+    disableConcurrentBuilds()             // Disallow concurrent runs of the same job
   }
 
   stages {
-    stage('Checkout & Build') {
+    stage('Validate Parameters') {
       steps {
-        dir("${params.SERVICE_NAME}") {
-          git url: "${env.GIT_REPO}", branch: "${params.BRANCH}"
-          script {
-            def commitId = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
-            env.IMAGE_TAG = commitId
-            def image = "hzeroxium/spring-petclinic-${params.SERVICE_NAME}:${commitId}"
+        script {
+          echo "🔍 Validating parameters..."
 
-            withCredentials([usernamePassword(credentialsId: 'hzeroxium-dockerhub',
-              usernameVariable: 'DOCKERHUB_USER', passwordVariable: 'DOCKERHUB_PASSWORD')]) {
-              sh "docker login -u $DOCKERHUB_USER -p $DOCKERHUB_PASSWORD"
-              sh "docker build -t ${image} ."
-              sh "docker push ${image}"
+          // Basic parameter checks
+          if (!params.FEATURE_NAME?.trim()) {
+            error "FEATURE_NAME cannot be empty."
+          }
+          if (!params.SERVICE_NAME?.trim()) {
+            error "SERVICE_NAME cannot be empty."
+          }
+          if (!params.BRANCH?.trim()) {
+            error "BRANCH cannot be empty."
+          }
+
+          // Prepare a temporary directory for all operations
+          TEMP_DIR = "${env.WORKSPACE}/temp-${env.BUILD_NUMBER}"
+          sh "mkdir -p ${TEMP_DIR}"
+
+          echo "✅ Parameters look good. TEMP_DIR created at: ${TEMP_DIR}"
+        }
+      }
+    }
+
+    stage('Checkout & Validate Branch') {
+      steps {
+        script {
+          echo "📂 Checking out code from branch: ${params.BRANCH}"
+
+          // We clone only the folder of the service to speed up the build,
+          // but it means the mvnw script is two levels up from the service folder
+          dir("${TEMP_DIR}/${params.SERVICE_NAME}") {
+            checkout([
+              $class: 'GitSCM',
+              branches: [[name: "${params.BRANCH}"]],
+              extensions: [
+                // Shallow clone to reduce bandwidth
+                [$class: 'CloneOption', depth: 1, noTags: false, shallow: true],
+              ],
+              userRemoteConfigs: [[url: "${GIT_REPO}"]]
+            ])
+
+            // Ensure we have a valid commit
+            IMAGE_TAG = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
+            echo "✅ Using commit: ${IMAGE_TAG}"
+
+            // Check for Dockerfile presence (either in service directory or parent)
+            if (!fileExists("Dockerfile") && !fileExists("../Dockerfile")) {
+              error "Dockerfile not found in the service folder or its parent directory."
             }
           }
         }
       }
     }
 
-    stage('Generate GitOps Files') {
+    stage('Build Jar') {
       steps {
         script {
-          def fea = params.FEATURE_NAME
-          def svc = params.SERVICE_NAME
-          def commitId = env.IMAGE_TAG
+          echo "🧱 Packaging service with Maven..."
+          // Since we did a partial checkout into TEMP_DIR/SERVICE_NAME,
+          // the `mvnw` file is now 2 levels up.
+          dir("${TEMP_DIR}/${params.SERVICE_NAME}") {
+            sh '../../mvnw package -DskipTests'
+          }
+        }
+      }
+    }
 
-          sh "rm -rf config-repo"
-          withCredentials([usernamePassword(credentialsId: 'github-credentials',
-            usernameVariable: 'GIT_USER', passwordVariable: 'GIT_PASS')]) {
-            sh """
-              git clone https://${GIT_USER}:${GIT_PASS}@github.com/HZeroxium/spring-petclinic-microservices-config.git config-repo
-            """
-            dir("config-repo") {
-              // Tạo folder cho feature nếu chưa có
-              sh "mkdir -p values/preview/${fea}"
+    stage('Build & Push Docker Image') {
+      steps {
+        script {
+          echo "🐳 Building and pushing Docker image..."
 
-              // Ghi file Helm values override
-              writeFile file: "values/preview/${fea}/values-${svc}.yaml", text: """
+          def image        = "hzeroxium/spring-petclinic-${params.SERVICE_NAME}"
+          def imageWithTag = "${image}:${IMAGE_TAG}"
+          def servicePort  = SERVICES[params.SERVICE_NAME] ?: 8080
+
+          try {
+            // Log in to DockerHub
+            withCredentials([usernamePassword(
+              credentialsId: 'hzeroxium-dockerhub',
+              usernameVariable: 'DOCKERHUB_USER',
+              passwordVariable: 'DOCKERHUB_PASSWORD'
+            )]) {
+              sh "docker login -u ${DOCKERHUB_USER} -p ${DOCKERHUB_PASSWORD}"
+            }
+
+            // Change working directory to the service folder for proper build context.
+            dir("${TEMP_DIR}/${params.SERVICE_NAME}") {
+              // Dynamically compute the artifact name from the build output.
+              // Assumes that the built JAR is located under "spring-petclinic-${SERVICE_NAME}/target"
+
+              sh """
+                docker build \\
+                  --build-arg SERVICE_NAME=${params.SERVICE_NAME} \\
+                  --build-arg EXPOSED_PORT=${servicePort} \\
+                  -t ${imageWithTag} \\
+                  -t ${image}:latest \\
+                  .
+              """
+            }
+
+            sh "docker push ${imageWithTag}"
+            sh "docker push ${image}:latest"
+            sh "docker rmi ${imageWithTag} || true"
+            sh "docker rmi ${image}:latest || true"
+
+          } catch (Exception e) {
+            error "Docker build/push failed: ${e.message}"
+          }
+        }
+      }
+    }
+
+    stage('Update GitOps Preview Config') {
+      steps {
+        script {
+          def previewPath = "preview-${params.FEATURE_NAME}"
+          def configRepo = "${TEMP_DIR}/config-repo"
+
+          withCredentials([usernamePassword(
+            credentialsId: 'github-credentials',
+            usernameVariable: 'GIT_USER',
+            passwordVariable: 'GIT_PASS'
+          )]) {
+            sh "git clone https://${GIT_USER}:${GIT_PASS}@github.com/HZeroxium/spring-petclinic-microservices-config.git ${configRepo}"
+          }
+
+          dir(configRepo) {
+            def appsDir = "apps/preview/${previewPath}"
+            def valuesDir = "values/preview/${previewPath}"
+            sh "mkdir -p ${appsDir} ${valuesDir}"
+
+            SERVICES.each { svc, port ->
+              def tag = (svc == params.SERVICE_NAME) ? IMAGE_TAG : "latest"
+
+              writeFile file: "${valuesDir}/values-${svc}.yaml", text: """
+# values/preview/${previewPath}/values-${svc}.yaml
 image:
   repository: hzeroxium/spring-petclinic-${svc}
-  tag: "${commitId}"
+  tag: "${tag}"
   pullPolicy: IfNotPresent
 
 replicas: 1
 
 service:
-  port: 8080
+  name: ${svc}
+  port: ${port}
   type: ClusterIP
 
 env:
   - name: SPRING_PROFILES_ACTIVE
     value: docker
   - name: CONFIG_SERVER_URL
-    value: http://config-server.petclinic-core.svc.cluster.local:8888
+    value: http://config-server:8888
   - name: EUREKA_CLIENT_SERVICEURL_DEFAULTZONE
-    value: http://discovery-server.petclinic-core.svc.cluster.local:8761/eureka
+    value: http://discovery-server:8761/eureka
+  - name: EUREKA_INSTANCE_HOSTNAME
+    value: ${svc}
+
+resources:
+  limits:
+    cpu: "500m"
+    memory: "512Mi"
+  requests:
+    cpu: "200m"
+    memory: "256Mi"
+
+readinessProbe:
+  path: /actuator/health
+  port: ${port}
+  initialDelaySeconds: 30
+  periodSeconds: 10
+
+livenessProbe:
+  path: /actuator/health
+  port: ${port}
+  initialDelaySeconds: 60
+  periodSeconds: 15
 """
 
-              // Optionally, generate ingress for this preview
-              sh "mkdir -p ingress/preview"
-              writeFile file: "ingress/preview/${fea}-ingress.yaml", text: """
+              writeFile file: "${appsDir}/${svc}.yaml", text: """
+# apps/preview/${previewPath}/${svc}.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ${svc}-${previewPath}
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: 'https://github.com/HZeroxium/spring-petclinic-microservices-config'
+    targetRevision: HEAD
+    path: charts/spring-petclinic-service
+    helm:
+      valueFiles:
+        - ../../values/preview/${previewPath}/values-${svc}.yaml
+      releaseName: ${svc}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: preview-${previewPath}
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - PruneLast=true
+      - ApplyOutOfSyncOnly=true
+"""
+            }
+
+            writeFile file: "${appsDir}/ingress.yaml", text: """
+# apps/preview/${previewPath}/ingress.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ingress-${previewPath}
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: 'https://github.com/HZeroxium/spring-petclinic-microservices-config'
+    targetRevision: HEAD
+    path: ingress/preview/${previewPath}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: preview-${previewPath}
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+"""
+
+            def ingressPath = "ingress/preview/${previewPath}"
+            sh "mkdir -p ${ingressPath}"
+            writeFile file: "${ingressPath}/ingress-${previewPath}.yaml", text: """
+# ingress/preview/${previewPath}/ingress-${previewPath}.yaml
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: ${fea}-ingress
-  namespace: preview-${fea}
+  name: petclinic-ingress-preview
+  namespace: preview-${previewPath}
+  labels:
+    app.kubernetes.io/name: petclinic-ingress-preview
 spec:
   rules:
-    - host: ${fea}.petclinic.local
+    - host: ${params.FEATURE_NAME}.petclinic.local
       http:
         paths:
-          - pathType: Prefix
-            path: "/"
+          - path: /
+            pathType: Prefix
             backend:
               service:
-                name: ${svc}
+                name: api-gateway
                 port:
                   number: 8080
 """
 
-              // Commit & push
-              sh """
-                git config user.name "jenkins"
-                git config user.email "jenkins@company.com"
-                git add .
-                git commit -m "[Preview] ${fea}: ${svc} -> ${commitId}"
-                git push
-              """
-            }
+            sh """
+              git config user.name "jenkins"
+              git config user.email "jenkins@company.com"
+              git add .
+              git commit -m "[Preview] ${previewPath} updated for ${params.SERVICE_NAME} -> ${IMAGE_TAG}" || echo "No changes to commit."
+              git push || echo "Nothing to push."
+            """
           }
         }
+      }
+    }
+  }
+
+  post {
+    success {
+      echo """
+      🎉 PREVIEW ENVIRONMENT READY!
+
+      Service: ${params.SERVICE_NAME}
+      Feature: ${params.FEATURE_NAME}
+      URL: http://${params.FEATURE_NAME}.petclinic.local
+
+      The preview environment will be automatically updated by ArgoCD.
+      """
+    }
+    failure {
+      echo "❌ Pipeline failed! Check the logs for details."
+    }
+    always {
+      script {
+        // Clean up workspace
+        sh "rm -rf ${TEMP_DIR} || true"
       }
     }
   }

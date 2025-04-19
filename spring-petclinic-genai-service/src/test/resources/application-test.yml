@@ -1,0 +1,21 @@
+spring:
+  main:
+    web-application-type: reactive
+  cloud:
+    config:
+      enabled: false # Disable config-server for tests
+  application:
+    name: genai-service
+  ai:
+    chat:
+      client:
+        enabled: false # Use mock chat client in tests
+
+eureka:
+  client:
+    enabled: false # Disable service discovery for tests
+
+logging:
+  level:
+    org:
+      springframework: INFO

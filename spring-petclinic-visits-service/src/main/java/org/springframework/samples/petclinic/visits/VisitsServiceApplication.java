@@ -20,7 +20,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.cloud.client.discovery.EnableDiscoveryClient;
 
 /**
- * @author Maciej Szarlinski
+ * @author Maciej Szarlinski Zerox
  */
 @EnableDiscoveryClient
 @SpringBootApplication
