@@ -272,16 +272,11 @@ pipeline {
 
                     // Sequential Docker builds and pushes
                     for (service in servicesList) {
-                        echo "🐳 Building & pushing Docker image for ${service}..."
-
-                        // Extract short service name from the full name
                         def shortServiceName = service.replaceFirst("spring-petclinic-", "")
-                        
-                        // Get the appropriate port for this service
                         def servicePort = servicePorts.get(service, 8080)
-                        
-                        def commitHash = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
-                        def imageTag = "hzeroxium/${service}:${commitHash}"
+                        def imageBase = "hzeroxium/${service}"
+                        def imageTag = "${imageBase}:${COMMIT_HASH}"
+                        def releaseTag = GIT_TAG ? "${imageBase}:${GIT_TAG}" : ""
 
                         sh """
                         docker build \\
@@ -289,13 +284,13 @@ pipeline {
                             --build-arg EXPOSED_PORT=${servicePort} \\
                             -f Dockerfile \\
                             -t ${imageTag} \\
-                            -t hzeroxium/${service}:latest \\
+                            -t ${imageBase}:latest \\
                             .
                         docker push ${imageTag}
-                        docker push hzeroxium/${service}:latest
+                        docker push ${imageBase}:latest
                         ${GIT_TAG ? "docker tag ${imageTag} ${releaseTag} && docker push ${releaseTag}" : ""}
                         docker rmi ${imageTag} || true
-                        docker rmi hzeroxium/${service}:latest || true
+                        docker rmi ${imageBase}:latest || true
                         ${GIT_TAG ? "docker rmi ${releaseTag} || true" : ""}
                         """
                     }
