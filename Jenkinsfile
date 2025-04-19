@@ -1,10 +1,30 @@
 // Jenkinsfile
 def SERVICES_CHANGED = ""
 def DEPLOY_ENV = "${params.ENVIRONMENT ?: 'dev'}" // Default dev if not specified
+def COMMIT_HASH = ""
+def GIT_TAG = ""
+
 pipeline {
     agent any
 
+
     stages {
+        stage('Init Commit and Tag') {
+            steps {
+                script {
+                    sh 'git fetch --all --tags --prune'
+                    COMMIT_HASH = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
+                    GIT_TAG = sh(script: "git describe --tags --exact-match || echo ''", returnStdout: true).trim()
+                    DEPLOY_ENV = params.ENVIRONMENT ?: (GIT_TAG.startsWith("v") ? "staging" : "dev")
+
+                    echo "🔍 Commit Hash: ${COMMIT_HASH}"
+                    echo "🔖 Git Tag: ${GIT_TAG ?: 'none'}"
+                    echo "🚀 Deploy Environment: ${DEPLOY_ENV}"
+                }
+            }
+        }
+
+
         stage('Detect Changes') {
             // agent { label 'any' }
             steps {
@@ -115,83 +135,83 @@ pipeline {
             }
         }
 
-        // stage('Test & Coverage Check') {
-        //     agent { label 'maven-node' }
-        //     when {
-        //         expression { SERVICES_CHANGED?.trim() != "" }
-        //     }
-        //     steps {
-        //         script {
-        //             def servicesList = SERVICES_CHANGED.tokenize(',')
+        stage('Test & Coverage Check') {
+            agent { label 'maven-node' }
+            when {
+                expression { SERVICES_CHANGED?.trim() != "" }
+            }
+            steps {
+                script {
+                    def servicesList = SERVICES_CHANGED.tokenize(',')
 
-        //             if (servicesList.isEmpty()) {
-        //                 echo "ℹ️ No changed services found. Skipping tests."
-        //                 return
-        //             }
+                    if (servicesList.isEmpty()) {
+                        echo "ℹ️ No changed services found. Skipping tests."
+                        return
+                    }
 
-        //             // Run tests sequentially instead of in parallel
-        //             for (service in servicesList) {
-        //                 echo "🔬 Running tests for ${service}..."
-        //                 withEnv(["MAVEN_USER_HOME=${env.WORKSPACE}/m2-wrapper-${service}"]) {
-        //                     dir(service) {
-        //                         sh '../mvnw clean verify -PbuildDocker jacoco:report'
+                    // Run tests sequentially instead of in parallel
+                    for (service in servicesList) {
+                        echo "🔬 Running tests for ${service}..."
+                        withEnv(["MAVEN_USER_HOME=${env.WORKSPACE}/m2-wrapper-${service}"]) {
+                            dir(service) {
+                                sh '../mvnw clean verify -PbuildDocker jacoco:report'
 
-        //                         def jacocoFile = sh(script: "find target -name jacoco.xml", returnStdout: true).trim()
-        //                         if (!jacocoFile) {
-        //                             echo "⚠️ No JaCoCo report found for ${service}."
-        //                         } else {
-        //                             def missed = sh(script: """
-        //                                 awk -F 'missed="' '/<counter type="LINE"/ {gsub(/".*/, "", \$2); sum += \$2} END {print sum}' ${jacocoFile}
-        //                             """, returnStdout: true).trim()
+                                def jacocoFile = sh(script: "find target -name jacoco.xml", returnStdout: true).trim()
+                                if (!jacocoFile) {
+                                    echo "⚠️ No JaCoCo report found for ${service}."
+                                } else {
+                                    def missed = sh(script: """
+                                        awk -F 'missed="' '/<counter type="LINE"/ {gsub(/".*/, "", \$2); sum += \$2} END {print sum}' ${jacocoFile}
+                                    """, returnStdout: true).trim()
 
-        //                             def covered = sh(script: """
-        //                                 awk -F 'covered="' '/<counter type="LINE"/ {gsub(/".*/, "", \$2); sum += \$2} END {print sum}' ${jacocoFile}
-        //                             """, returnStdout: true).trim()
+                                    def covered = sh(script: """
+                                        awk -F 'covered="' '/<counter type="LINE"/ {gsub(/".*/, "", \$2); sum += \$2} END {print sum}' ${jacocoFile}
+                                    """, returnStdout: true).trim()
 
-        //                             def total = missed.toInteger() + covered.toInteger()
-        //                             def coveragePercent = (total > 0) ? (covered.toInteger() * 100 / total) : 0
+                                    def total = missed.toInteger() + covered.toInteger()
+                                    def coveragePercent = (total > 0) ? (covered.toInteger() * 100 / total) : 0
 
-        //                             echo "🚀 Test coverage for ${service}: ${coveragePercent}%"
+                                    echo "🚀 Test coverage for ${service}: ${coveragePercent}%"
 
-        //                             if (coveragePercent < 70) {
-        //                                 error("❌ Test coverage below 70% for ${service}.")
-        //                             }
-        //                         }
-        //                     }
-        //                 }
-        //             }
-        //         }
-        //     }
-        // }
+                                    if (coveragePercent < 70) {
+                                        error("❌ Test coverage below 70% for ${service}.")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
-        // stage('Publish JaCoCo Coverage') {
-        //     agent { label 'maven-node' }
-        //     when {
-        //         expression { SERVICES_CHANGED?.trim() != "" }
-        //     }
-        //     steps {
-        //         script {
-        //             def servicesList = SERVICES_CHANGED.tokenize(',')
+        stage('Publish JaCoCo Coverage') {
+            agent { label 'maven-node' }
+            when {
+                expression { SERVICES_CHANGED?.trim() != "" }
+            }
+            steps {
+                script {
+                    def servicesList = SERVICES_CHANGED.tokenize(',')
 
-        //             if (servicesList.isEmpty()) {
-        //                 echo "ℹ️ No changed services found. Skipping coverage upload."
-        //                 return
-        //             }
+                    if (servicesList.isEmpty()) {
+                        echo "ℹ️ No changed services found. Skipping coverage upload."
+                        return
+                    }
 
-        //             for (service in servicesList) {
-        //                 echo "📊 Uploading JaCoCo coverage for ${service}..."
-        //                 dir(service) {
-        //                     jacoco(
-        //                         execPattern: 'target/jacoco.exec',
-        //                         classPattern: 'target/classes',
-        //                         sourcePattern: 'src/main/java',
-        //                         exclusionPattern: '**/test/**'
-        //                     )
-        //                 }
-        //             }
-        //         }
-        //     }
-        // }
+                    for (service in servicesList) {
+                        echo "📊 Uploading JaCoCo coverage for ${service}..."
+                        dir(service) {
+                            jacoco(
+                                execPattern: 'target/jacoco.exec',
+                                classPattern: 'target/classes',
+                                sourcePattern: 'src/main/java',
+                                exclusionPattern: '**/test/**'
+                            )
+                        }
+                    }
+                }
+            }
+        }
 
 
         stage('Build (Maven)') {
@@ -274,8 +294,10 @@ pipeline {
                             .
                         docker push ${imageTag}
                         docker push hzeroxium/${service}:latest
+                        ${GIT_TAG ? "docker tag ${imageTag} ${releaseTag} && docker push ${releaseTag}" : ""}
                         docker rmi ${imageTag} || true
                         docker rmi hzeroxium/${service}:latest || true
+                        ${GIT_TAG ? "docker rmi ${releaseTag} || true" : ""}
                         """
                     }
                 }
@@ -289,10 +311,13 @@ pipeline {
             steps {
                 script {
                     def servicesList = SERVICES_CHANGED.tokenize(',')
-                    def commitHash = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
+                    def finalTag = GIT_TAG ?: COMMIT_HASH
+                    def folder = "spring-petclinic-microservices-config"
+                    def valuesDir = "values/${DEPLOY_ENV}"
+
                     
                     // Create a temporary directory for the GitOps repo
-                    sh "rm -rf spring-petclinic-microservices-config || true"
+                    sh "rm -rf ${folder} || true"
                     
                     // Use credentials for Git operations
                     withCredentials([usernamePassword(
@@ -310,13 +335,13 @@ pipeline {
                             // Update image tags for each changed service
                             for (service in servicesList) {
                                 def shortServiceName = service.replaceFirst("spring-petclinic-", "")
-                                def valuesFile = "values/dev/values-${shortServiceName}.yaml"
+                                def valuesFile = "${valuesDir}/values-${shortServiceName}.yaml"
                                 
                                 // Check if file exists and update with sed
                                 sh """
                                 if [ -f "${valuesFile}" ]; then
-                                    echo "Updating image tag in ${valuesFile}"
-                                    sed -i 's/\\(tag:\\s*\\).*/\\1"'${commitHash}'"/' ${valuesFile}
+                                    echo "Updating tag in ${valuesFile} to ${finalTag}"
+                                    sed -i 's/\\(tag:\\s*\\).*/\\1"${finalTag}"/' ${valuesFile}
                                 else
                                     echo "Warning: ${valuesFile} not found"
                                 fi
@@ -332,7 +357,7 @@ pipeline {
                             # Only commit if there are changes
                             if ! git diff --quiet; then
                                 git add .
-                                git commit -m "Update image tags for ${SERVICES_CHANGED} to ${commitHash}"
+                                git commit -m "Update ${DEPLOY_ENV} image tags for ${SERVICES_CHANGED} to ${finalTag}"
                                 git push
                                 echo "✅ Successfully updated GitOps repository"
                             else
@@ -343,7 +368,7 @@ pipeline {
                     }
                     
                     // Clean up after ourselves
-                    sh "rm -rf spring-petclinic-microservices-config || true"
+                    sh "rm -rf ${folder} || true"
                 }
             }
         }
