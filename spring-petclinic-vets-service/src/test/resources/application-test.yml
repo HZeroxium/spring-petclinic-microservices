@@ -1,7 +1,7 @@
 spring:
   cloud:
     config:
-      enabled: false
+      enabled: false # Comment this if you want to use real config-server
   sql:
     init:
       schema-locations: classpath*:db/hsqldb/schema.sql
