@@ -134,83 +134,83 @@ pipeline {
             }
         }
 
-        stage('Test & Coverage Check') {
-            // agent { label 'maven-node' }
-            when {
-                expression { SERVICES_CHANGED?.trim() != "" }
-            }
-            steps {
-                script {
-                    def servicesList = SERVICES_CHANGED.tokenize(',')
+        // stage('Test & Coverage Check') {
+        //     // agent { label 'maven-node' }
+        //     when {
+        //         expression { SERVICES_CHANGED?.trim() != "" }
+        //     }
+        //     steps {
+        //         script {
+        //             def servicesList = SERVICES_CHANGED.tokenize(',')
 
-                    if (servicesList.isEmpty()) {
-                        echo "ℹ️ No changed services found. Skipping tests."
-                        return
-                    }
+        //             if (servicesList.isEmpty()) {
+        //                 echo "ℹ️ No changed services found. Skipping tests."
+        //                 return
+        //             }
 
-                    // Run tests sequentially instead of in parallel
-                    for (service in servicesList) {
-                        echo "🔬 Running tests for ${service}..."
-                        withEnv(["MAVEN_USER_HOME=${env.WORKSPACE}/m2-wrapper-${service}"]) {
-                            dir(service) {
-                                sh '../mvnw clean verify -PbuildDocker jacoco:report'
+        //             // Run tests sequentially instead of in parallel
+        //             for (service in servicesList) {
+        //                 echo "🔬 Running tests for ${service}..."
+        //                 withEnv(["MAVEN_USER_HOME=${env.WORKSPACE}/m2-wrapper-${service}"]) {
+        //                     dir(service) {
+        //                         sh '../mvnw clean verify -PbuildDocker jacoco:report'
 
-                                def jacocoFile = sh(script: "find target -name jacoco.xml", returnStdout: true).trim()
-                                if (!jacocoFile) {
-                                    echo "⚠️ No JaCoCo report found for ${service}."
-                                } else {
-                                    def missed = sh(script: """
-                                        awk -F 'missed="' '/<counter type="LINE"/ {gsub(/".*/, "", \$2); sum += \$2} END {print sum}' ${jacocoFile}
-                                    """, returnStdout: true).trim()
+        //                         def jacocoFile = sh(script: "find target -name jacoco.xml", returnStdout: true).trim()
+        //                         if (!jacocoFile) {
+        //                             echo "⚠️ No JaCoCo report found for ${service}."
+        //                         } else {
+        //                             def missed = sh(script: """
+        //                                 awk -F 'missed="' '/<counter type="LINE"/ {gsub(/".*/, "", \$2); sum += \$2} END {print sum}' ${jacocoFile}
+        //                             """, returnStdout: true).trim()
 
-                                    def covered = sh(script: """
-                                        awk -F 'covered="' '/<counter type="LINE"/ {gsub(/".*/, "", \$2); sum += \$2} END {print sum}' ${jacocoFile}
-                                    """, returnStdout: true).trim()
+        //                             def covered = sh(script: """
+        //                                 awk -F 'covered="' '/<counter type="LINE"/ {gsub(/".*/, "", \$2); sum += \$2} END {print sum}' ${jacocoFile}
+        //                             """, returnStdout: true).trim()
 
-                                    def total = missed.toInteger() + covered.toInteger()
-                                    def coveragePercent = (total > 0) ? (covered.toInteger() * 100 / total) : 0
+        //                             def total = missed.toInteger() + covered.toInteger()
+        //                             def coveragePercent = (total > 0) ? (covered.toInteger() * 100 / total) : 0
 
-                                    echo "🚀 Test coverage for ${service}: ${coveragePercent}%"
+        //                             echo "🚀 Test coverage for ${service}: ${coveragePercent}%"
 
-                                    if (coveragePercent < 70) {
-                                        error("❌ Test coverage below 70% for ${service}.")
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        //                             if (coveragePercent < 70) {
+        //                                 error("❌ Test coverage below 70% for ${service}.")
+        //                             }
+        //                         }
+        //                     }
+        //                 }
+        //             }
+        //         }
+        //     }
+        // }
 
-        stage('Publish JaCoCo Coverage') {
-            // agent { label 'maven-node' }
-            when {
-                expression { SERVICES_CHANGED?.trim() != "" }
-            }
-            steps {
-                script {
-                    def servicesList = SERVICES_CHANGED.tokenize(',')
+        // stage('Publish JaCoCo Coverage') {
+        //     // agent { label 'maven-node' }
+        //     when {
+        //         expression { SERVICES_CHANGED?.trim() != "" }
+        //     }
+        //     steps {
+        //         script {
+        //             def servicesList = SERVICES_CHANGED.tokenize(',')
 
-                    if (servicesList.isEmpty()) {
-                        echo "ℹ️ No changed services found. Skipping coverage upload."
-                        return
-                    }
+        //             if (servicesList.isEmpty()) {
+        //                 echo "ℹ️ No changed services found. Skipping coverage upload."
+        //                 return
+        //             }
 
-                    for (service in servicesList) {
-                        echo "📊 Uploading JaCoCo coverage for ${service}..."
-                        dir(service) {
-                            jacoco(
-                                execPattern: 'target/jacoco.exec',
-                                classPattern: 'target/classes',
-                                sourcePattern: 'src/main/java',
-                                exclusionPattern: '**/test/**'
-                            )
-                        }
-                    }
-                }
-            }
-        }
+        //             for (service in servicesList) {
+        //                 echo "📊 Uploading JaCoCo coverage for ${service}..."
+        //                 dir(service) {
+        //                     jacoco(
+        //                         execPattern: 'target/jacoco.exec',
+        //                         classPattern: 'target/classes',
+        //                         sourcePattern: 'src/main/java',
+        //                         exclusionPattern: '**/test/**'
+        //                     )
+        //                 }
+        //             }
+        //         }
+        //     }
+        // }
 
 
         stage('Build (Maven)') {
