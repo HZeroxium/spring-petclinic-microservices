@@ -7,6 +7,7 @@ def GIT_TAG = ""
 pipeline {
     agent any
 
+
     stages {
         stage('Init Commit and Tag') {
             steps {
